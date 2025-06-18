@@ -11,7 +11,7 @@ import os
 
 from sklearn import preprocessing
 from sklearn.naive_bayes import GaussianNB, BernoulliNB, MultinomialNB, CategoricalNB
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report
 
 # Need to preprocess data first
 def preprocess(files_to_process, path, label):
@@ -31,6 +31,29 @@ def preprocess(files_to_process, path, label):
     return (processed_files, labels)
 
 
+def get_batch(batch_size, files, path, label):
+    batch = []
+    labels = []
+    while len(files) > 0:
+        file = files.pop()
+        img = cv2.imread(os.path.join(path, file), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            print("Found null image, skipping...")
+            continue
+        # First, resize image for consistency
+        resized = cv2.resize(img, (1080, 1080), interpolation=cv2.INTER_LANCZOS4)
+        # Improve image contrast
+        clahe = cv2.createCLAHE(clipLimit=3)
+        resized = np.clip(clahe.apply(resized)+15, 0, 255)
+        # Reshape to fit with model
+        flattened_img = resized.flatten()
+        batch.append(flattened_img)
+        labels.append(label)
+        if len(batch) >= batch_size:
+            break
+    return (batch, labels)
+
+
 training_dataset_dir_normal = "./chest_xray/train/NORMAL"
 training_dataset_dir_pneumonia = "./chest_xray/train/PNEUMONIA"
 
@@ -45,33 +68,38 @@ test_normal_files = [file for file in os.listdir(test_dataset_dir_normal) if isf
 test_pneumonia_virus_files = [file for file in os.listdir(test_dataset_dir_pneumonia) if (isfile(os.path.join(test_dataset_dir_pneumonia, file)) and "virus" in file)]
 test_pneumonia_bacterial_files = [file for file in os.listdir(test_dataset_dir_pneumonia) if (isfile(os.path.join(test_dataset_dir_pneumonia, file)) and "bacteria" in file)]
 
-processed_training_normal, label_normal = preprocess(all_files, training_dataset_dir_normal, 0)
-processed_training_pneumonia_viral, label_viral = preprocess(all_pneumonia_virus_files, training_dataset_dir_pneumonia, 1)
-processed_training_pneumonia_bacterial, label_bacterial = preprocess(all_pneumonia_bacterial_files, training_dataset_dir_pneumonia, 2)
-
-processed_test_normal, test_label_normal = preprocess(test_normal_files, test_dataset_dir_normal, 0)
-processed_test_pneumonia_viral, test_label_viral = preprocess(test_pneumonia_virus_files, test_dataset_dir_pneumonia, 1)
-processed_test_pneumonia_bacterial, test_label_bacterial = preprocess(test_pneumonia_bacterial_files, test_dataset_dir_pneumonia, 2)
-
-
-processed_training_normal.extend(processed_training_pneumonia_viral)
-processed_training_normal.extend(processed_training_pneumonia_bacterial)
-label_normal.extend(label_viral)
-label_normal.extend(label_bacterial)
-
-
-processed_test_normal.extend(processed_test_pneumonia_viral)
-processed_test_normal.extend(processed_test_pneumonia_bacterial)
-test_label_normal.extend(test_label_viral)
-test_label_normal.extend(test_label_bacterial)
-
-print(processed_training_normal)
-print(label_normal)
-
-
+BATCH_SIZE = 16
 
 gnb = GaussianNB()
-gnb.fit(processed_training_normal, label_normal)
-y_pred = gnb.predict(processed_test_normal)
+while len(all_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, all_files, training_dataset_dir_normal, 0)
+    gnb.partial_fit(batch, labels, classes=[0, 1, 2])
 
-print(accuracy_score(test_label_normal, y_pred))
+while len(all_pneumonia_virus_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, all_pneumonia_virus_files, training_dataset_dir_pneumonia, 1)
+    gnb.partial_fit(batch, labels)
+
+while len(all_pneumonia_bacterial_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, all_pneumonia_bacterial_files, training_dataset_dir_pneumonia, 2)
+    gnb.partial_fit(batch, labels)
+
+
+all_test_labels = []
+y_pred = []
+
+while len(test_normal_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, test_normal_files, test_dataset_dir_normal, 0)
+    y_pred.extend(gnb.predict(batch))
+    all_test_labels.extend(labels)
+
+while len(test_pneumonia_virus_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, test_pneumonia_virus_files, test_dataset_dir_pneumonia, 1)
+    y_pred.extend(gnb.predict(batch))
+    all_test_labels.extend(labels)
+
+while len(test_pneumonia_bacterial_files) > 0:
+    batch, labels = get_batch(BATCH_SIZE, test_pneumonia_bacterial_files, test_dataset_dir_pneumonia, 2)
+    y_pred.extend(gnb.predict(batch))
+    all_test_labels.extend(labels)
+
+print(classification_report(all_test_labels, y_pred))
