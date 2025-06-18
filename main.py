@@ -11,7 +11,7 @@ import os
 
 from sklearn import preprocessing
 from sklearn.naive_bayes import GaussianNB, BernoulliNB, MultinomialNB, CategoricalNB
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report
 
 # Need to preprocess data first
 def preprocess(files_to_process, path, label):
@@ -41,10 +41,10 @@ def get_batch(batch_size, files, path, label):
             print("Found null image, skipping...")
             continue
         # First, resize image for consistency
-        resized = cv2.resize(img, (1080, 1080), interpolation=cv2.INTER_LINEAR)
+        resized = cv2.resize(img, (1080, 1080), interpolation=cv2.INTER_LANCZOS4)
         # Improve image contrast
         clahe = cv2.createCLAHE(clipLimit=3)
-        resized = clahe.apply(resized)
+        resized = np.clip(clahe.apply(resized)+15, 0, 255)
         # Reshape to fit with model
         flattened_img = resized.flatten()
         batch.append(flattened_img)
@@ -102,4 +102,4 @@ while len(test_pneumonia_bacterial_files) > 0:
     y_pred.extend(gnb.predict(batch))
     all_test_labels.extend(labels)
 
-print(accuracy_score(all_test_labels, y_pred))
+print(classification_report(all_test_labels, y_pred))
