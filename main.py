@@ -42,6 +42,9 @@ def get_batch(batch_size, files, path, label):
             continue
         # First, resize image for consistency
         resized = cv2.resize(img, (1080, 1080), interpolation=cv2.INTER_LINEAR)
+        # Improve image contrast
+        clahe = cv2.createCLAHE(clipLimit=3)
+        resized = clahe.apply(resized)
         # Reshape to fit with model
         flattened_img = resized.flatten()
         batch.append(flattened_img)
